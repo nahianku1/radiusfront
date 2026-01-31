@@ -1,4 +1,3 @@
-import { createFileRoute } from "@tanstack/react-router";
 import * as React from "react";
 import axios from "axios";
 import { toast } from "react-hot-toast";
@@ -32,8 +31,6 @@ import {
   ChevronRight,
   User,
   Search,
-  Plus,
-  Activity,
   Globe,
   MapPin,
   Home,
@@ -51,26 +48,29 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-
 import { useNavigate } from "@tanstack/react-router";
 import type { IUser } from "@/types/user.interface";
 import type { IPackage } from "@/types/package.interface";
-import { useSSE } from "@/hooks/useSSE";
-import { EditUserModal } from "./components/EditUserModal";
-
-export const Route = createFileRoute("/users/list")({
-  component: UsersListPage,
-});
+import { EditUserModal } from "./EditUserModal";
 
 type FlattenedRow = IUser & {
   _isUserOnly: boolean;
   _originalUser: IUser;
 };
 
-function UsersListPage() {
-  const [data, setData] = React.useState<IUser[]>([]);
-  const [packages, setPackages] = React.useState<IPackage[]>([]);
-  const [loading, setLoading] = React.useState(true);
+interface UsersDataTableProps {
+  data: IUser[];
+  packages: IPackage[];
+  loading: boolean;
+  onRefresh: () => void;
+}
+
+export function UsersDataTable({
+  data,
+  packages,
+  loading,
+  onRefresh,
+}: UsersDataTableProps) {
   const [sorting, setSorting] = React.useState<SortingState>([]);
   const [columnFilters, setColumnFilters] = React.useState<ColumnFiltersState>(
     [],
@@ -87,67 +87,44 @@ function UsersListPage() {
 
   const navigate = useNavigate();
 
-  const fetchData = async () => {
-    try {
-      setLoading(true);
-      const [usersRes, packagesRes] = await Promise.all([
-        axios.get(`${import.meta.env.VITE_API_URL}/users/getall-users`),
-        axios.get(`${import.meta.env.VITE_API_URL}/services/getall-service`),
-      ]);
-
-      setData(usersRes.data.data.result || []);
-      setPackages(packagesRes.data.data || []);
-    } catch (error) {
-      console.error(error);
-      toast.error("Failed to fetch data");
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  const handleSSEMessage = React.useCallback((data: unknown) => {
-    console.log("🔔 User update received:", data);
-    fetchData();
-  }, []);
-
-  useSSE(`${import.meta.env.VITE_API_URL}/events`, handleSSEMessage);
-
-  React.useEffect(() => {
-    fetchData();
-  }, []);
-
-  const handleDelete = React.useCallback(async (id: string) => {
-    if (
-      !confirm(
-        "Are you sure you want to delete this user? This action cannot be undone.",
+  const handleDelete = React.useCallback(
+    async (id: string) => {
+      if (
+        !confirm(
+          "Are you sure you want to delete this user? This action cannot be undone.",
+        )
       )
-    )
-      return;
+        return;
 
-    try {
-      await axios.delete(
-        `${import.meta.env.VITE_API_URL}/users/delete-users/${id}`,
-      );
-      toast.success("User deleted successfully");
-      //      fetchData();
-    } catch (error) {
-      console.error(error);
-      toast.error("Failed to delete user");
-    }
-  }, []);
+      try {
+        await axios.delete(
+          `${import.meta.env.VITE_API_URL}/users/delete-users/${id}`,
+        );
+        toast.success("User deleted successfully");
+        onRefresh();
+      } catch (error) {
+        console.error(error);
+        toast.error("Failed to delete user");
+      }
+    },
+    [onRefresh],
+  );
 
-  const handleToggleStatus = React.useCallback(async (id: string) => {
-    try {
-      await axios.post(
-        `${import.meta.env.VITE_API_URL}/users/toggle-status/${id}`,
-      );
-      toast.success("User status updated successfully");
-      //      fetchData();
-    } catch (error) {
-      console.error(error);
-      toast.error("Failed to update user status");
-    }
-  }, []);
+  const handleToggleStatus = React.useCallback(
+    async (id: string) => {
+      try {
+        await axios.post(
+          `${import.meta.env.VITE_API_URL}/users/toggle-status/${id}`,
+        );
+        toast.success("User status updated successfully");
+        onRefresh();
+      } catch (error) {
+        console.error(error);
+        toast.error("Failed to update user status");
+      }
+    },
+    [onRefresh],
+  );
 
   const handleDisconnect = React.useCallback(async (id: string) => {
     try {
@@ -182,7 +159,6 @@ function UsersListPage() {
           ),
         );
       } else if (action === "disable") {
-        // Only toggle those who are NOT disabled
         const rowsToDisable = selectedRows.filter(
           (r) => r.original.status !== "disabled",
         );
@@ -195,7 +171,6 @@ function UsersListPage() {
           ),
         );
       } else if (action === "enable") {
-        // Only toggle those who ARE disabled
         const rowsToEnable = selectedRows.filter(
           (r) => r.original.status === "disabled",
         );
@@ -221,7 +196,7 @@ function UsersListPage() {
       await Promise.all(promises);
       toast.success(`Bulk ${action} completed`, { id: toastId });
       setRowSelection({});
-      fetchData();
+      onRefresh();
     } catch (error) {
       console.error(error);
       toast.error(`Failed to perform bulk ${action}`, { id: toastId });
@@ -659,27 +634,7 @@ function UsersListPage() {
   });
 
   return (
-    <div className="flex-1 space-y-4 p-8 pt-6 bg-slate-50/50 min-h-screen">
-      <div className="flex items-center justify-between">
-        <div className="space-y-1">
-          <div className="flex items-center gap-2">
-            <Activity className="h-6 w-6 text-blue-600 animate-pulse" />
-            <h2 className="text-3xl font-extrabold tracking-tight bg-linear-to-r from-blue-700 via-blue-500 to-purple-600 bg-clip-text text-transparent">
-              Radius Users
-            </h2>
-          </div>
-          <p className="text-slate-400 text-sm font-medium">
-            Centralized management for user accounts and connection policies.
-          </p>
-        </div>
-        <Button
-          onClick={() => navigate({ to: "/users/new" })}
-          className="bg-linear-to-r from-blue-600 to-indigo-600 text-white shadow-lg hover:shadow-indigo-200 hover:scale-[1.02] active:scale-[0.98] transition-all px-6"
-        >
-          <Plus className="mr-2 h-4 w-4" /> Add New Registered User
-        </Button>
-      </div>
-
+    <>
       <Card className="shadow-2xl bg-white border-none overflow-hidden ring-1 ring-slate-200">
         <CardHeader className="pb-6 border-b border-slate-50 bg-slate-50/30">
           <div className="flex flex-col md:flex-row md:items-center justify-between gap-6">
@@ -802,10 +757,7 @@ function UsersListPage() {
                           return (
                             <tr key={row.id} className={rowClass}>
                               {row.getVisibleCells().map((cell) => (
-                                <td
-                                  key={cell.id}
-                                  className="px-6 py-4 align-top"
-                                >
+                                <td key={cell.id} className="px-6 py-4">
                                   {flexRender(
                                     cell.column.columnDef.cell,
                                     cell.getContext(),
@@ -819,30 +771,9 @@ function UsersListPage() {
                         <tr>
                           <td
                             colSpan={columns.length}
-                            className="p-16 text-center"
+                            className="h-24 text-center"
                           >
-                            <div className="flex flex-col items-center gap-4 max-w-sm mx-auto">
-                              <div className="bg-slate-100 p-6 rounded-full">
-                                <Search className="h-10 w-10 text-slate-300" />
-                              </div>
-                              <div>
-                                <h3 className="text-slate-800 font-bold text-lg leading-tight">
-                                  No results matched
-                                </h3>
-                                <p className="text-slate-400 text-sm mt-1">
-                                  We couldn't find any user records matching
-                                  your current filter. Try a different search
-                                  term or add a new user.
-                                </p>
-                              </div>
-                              <Button
-                                variant="outline"
-                                className="mt-2 rounded-full px-6"
-                                onClick={() => setGlobalFilter("")}
-                              >
-                                Clear Search
-                              </Button>
-                            </div>
+                            No results.
                           </td>
                         </tr>
                       )}
@@ -852,80 +783,24 @@ function UsersListPage() {
               )}
             </div>
           </div>
-
-          {!loading && data.length > 0 && (
-            <div className="flex flex-col sm:flex-row items-center justify-between gap-6 px-8 py-6 bg-slate-50/50 border-t border-slate-100">
-              <div className="flex items-center gap-6">
-                <div className="flex items-center gap-2 text-xs font-semibold text-slate-500">
-                  <span className="bg-white border border-slate-200 px-3 py-1.5 rounded-lg shadow-sm">
-                    Showing{" "}
-                    <span className="text-blue-600 font-bold">
-                      {table.getState().pagination.pageIndex *
-                        table.getState().pagination.pageSize +
-                        1}
-                    </span>{" "}
-                    -{" "}
-                    <span className="text-blue-600 font-bold">
-                      {Math.min(
-                        (table.getState().pagination.pageIndex + 1) *
-                          table.getState().pagination.pageSize,
-                        table.getFilteredRowModel().rows.length,
-                      )}
-                    </span>
-                  </span>
-                  <span>of</span>
-                  <span className="text-slate-800">
-                    {table.getFilteredRowModel().rows.length} Total Records
-                  </span>
-                </div>
-
-                <div className="flex items-center gap-3">
-                  <span className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">
-                    Page Size
-                  </span>
-                  <select
-                    value={table.getState().pagination.pageSize}
-                    onChange={(e) => table.setPageSize(Number(e.target.value))}
-                    className="h-9 min-w-[70px] rounded-xl border border-slate-200 bg-white px-2.5 py-1 text-sm font-bold text-slate-600 shadow-sm focus:ring-4 focus:ring-blue-100 focus:border-blue-400 outline-hidden cursor-pointer transition-all"
-                  >
-                    {[5, 10, 20, 50].map((pageSize) => (
-                      <option key={pageSize} value={pageSize}>
-                        {pageSize}
-                      </option>
-                    ))}
-                  </select>
-                </div>
-              </div>
-
-              <div className="flex items-center gap-2">
-                <Button
-                  variant="outline"
-                  onClick={() => table.previousPage()}
-                  disabled={!table.getCanPreviousPage()}
-                  className="rounded-xl border-slate-200 h-10 px-4 font-bold text-slate-600 shadow-sm disabled:opacity-30"
-                >
-                  <ChevronLeft className="h-4 w-4 mr-2" /> Previous
-                </Button>
-
-                <div className="flex items-center gap-1.5 px-4 font-bold text-sm">
-                  <span className="text-blue-600">
-                    {table.getState().pagination.pageIndex + 1}
-                  </span>
-                  <span className="text-slate-300">/</span>
-                  <span className="text-slate-600">{table.getPageCount()}</span>
-                </div>
-
-                <Button
-                  variant="outline"
-                  onClick={() => table.nextPage()}
-                  disabled={!table.getCanNextPage()}
-                  className="rounded-xl border-slate-200 h-10 px-4 font-bold text-slate-600 shadow-sm disabled:opacity-30"
-                >
-                  Next <ChevronRight className="h-4 w-4 ml-2" />
-                </Button>
-              </div>
-            </div>
-          )}
+          <div className="flex items-center justify-end space-x-2 p-4 bg-slate-50/50 border-t border-slate-100">
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => table.previousPage()}
+              disabled={!table.getCanPreviousPage()}
+            >
+              <ChevronLeft className="h-4 w-4" />
+            </Button>
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => table.nextPage()}
+              disabled={!table.getCanNextPage()}
+            >
+              <ChevronRight className="h-4 w-4" />
+            </Button>
+          </div>
         </CardContent>
       </Card>
 
@@ -936,8 +811,8 @@ function UsersListPage() {
           setSelectedUser(null);
         }}
         user={selectedUser}
-        onSuccess={fetchData}
+        onSuccess={onRefresh}
       />
-    </div>
+    </>
   );
 }
